@@ -96,6 +96,33 @@ private:
     void updatePeakFilter(const ChainSettings& chainSettings);
     static void updateCoefficients(Coefficients& old, Coefficients& new_);
 
+    template<int index, typename ChainType, typename CoefficientType>
+    void update(ChainType& chain, const CoefficientType& coefficients)
+    {
+        updateCoefficients(chain.template get<index>().coefficients, coefficients[index]);
+        chain.template setBypassed<index>(false);
+    }
+
+    template<typename ChainType, typename CoefficientType>
+    void UpdateCutFilter(ChainType& leftLowCut, const CoefficientType& cutCoefficients, const Slope& lowCutSlope) 
+    {
+        leftLowCut.template setBypassed<0>(true);
+        leftLowCut.template setBypassed<1>(true);
+        leftLowCut.template setBypassed<2>(true);
+        leftLowCut.template setBypassed<3>(true);
+
+        switch (lowCutSlope) {
+        case slope48:
+            update<3>(leftLowCut, cutCoefficients);
+        case slope36:
+            update<2>(leftLowCut, cutCoefficients);
+        case slope24:
+            update<1>(leftLowCut, cutCoefficients);
+        case slope12:
+            update<0>(leftLowCut, cutCoefficients);
+        }
+    }
+
     //==============================================================================
     JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR (KGP_EQAudioProcessor)
 };
