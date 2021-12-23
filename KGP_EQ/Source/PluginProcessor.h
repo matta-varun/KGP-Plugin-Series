@@ -10,10 +10,17 @@
 
 #include <JuceHeader.h>
 
+enum Slope {
+    slope12,
+    slope24,
+    slope36,
+    slope48
+};
+
 struct ChainSettings {
     float peakFreq{ 0 }, peakGainInDB{ 0 }, peakQuality{ 1.f };
     float lowCutFrequency{ 0 }, highCutFrequency{ 0 };
-    int lowCutSlope{ 0 }, highCutSlope{ 0 };
+    Slope lowCutSlope{ Slope::slope12 }, highCutSlope{ Slope::slope12 };
 };
 
 ChainSettings getChainSettings(juce::AudioProcessorValueTreeState& apvts);
@@ -83,6 +90,11 @@ private:
         Peak,
         HighCut
     };
+
+    using Coefficients = Filter::CoefficientsPtr;
+
+    void updatePeakFilter(const ChainSettings& chainSettings);
+    static void updateCoefficients(Coefficients& old, Coefficients& new_);
 
     //==============================================================================
     JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR (KGP_EQAudioProcessor)
