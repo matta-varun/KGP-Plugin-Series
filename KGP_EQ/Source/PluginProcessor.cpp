@@ -105,58 +105,7 @@ void KGP_EQAudioProcessor::prepareToPlay (double sampleRate, int samplesPerBlock
     lChain.prepare(spec);
     rChain.prepare(spec);
 
-    auto chainSettings = getChainSettings(apvts);
-    
-    updatePeakFilter(chainSettings);
-
-    auto cutCoefficients = juce::dsp::FilterDesign<float>::designIIRHighpassHighOrderButterworthMethod(chainSettings.lowCutFrequency, sampleRate, 2 * (chainSettings.lowCutSlope + 1));
-    auto &leftLowCut = lChain.get<ChainPositions::LowCut>();
-
-    UpdateCutFilter(leftLowCut, cutCoefficients, chainSettings.lowCutSlope);
-
-    auto& rightLowCut = rChain.get<ChainPositions::LowCut>();
-
-    UpdateCutFilter(rightLowCut, cutCoefficients, chainSettings.lowCutSlope);
-
-    /*rightLowCut.setBypassed<0>(true);
-    rightLowCut.setBypassed<1>(true);
-    rightLowCut.setBypassed<2>(true);
-    rightLowCut.setBypassed<3>(true);
-
-    switch (chainSettings.lowCutSlope) {
-    case slope12:
-        *rightLowCut.get<0>().coefficients = *cutCoefficients[0];
-        rightLowCut.setBypassed<0>(false);
-        break;
-    case slope24:
-        *rightLowCut.get<0>().coefficients = *cutCoefficients[0];
-        rightLowCut.setBypassed<0>(false);
-        *rightLowCut.get<1>().coefficients = *cutCoefficients[1];
-        rightLowCut.setBypassed<1>(false);
-        break;
-    case slope36:
-        *rightLowCut.get<0>().coefficients = *cutCoefficients[0];
-        rightLowCut.setBypassed<0>(false);
-        *rightLowCut.get<1>().coefficients = *cutCoefficients[1];
-        rightLowCut.setBypassed<1>(false);
-        *rightLowCut.get<2>().coefficients = *cutCoefficients[2];
-        rightLowCut.setBypassed<2>(false);
-        break;
-    case slope48:
-        *rightLowCut.get<0>().coefficients = *cutCoefficients[0];
-        rightLowCut.setBypassed<0>(false);
-        *rightLowCut.get<1>().coefficients = *cutCoefficients[1];
-        rightLowCut.setBypassed<1>(false);
-        *rightLowCut.get<2>().coefficients = *cutCoefficients[2];
-        rightLowCut.setBypassed<2>(false);
-        *rightLowCut.get<3>().coefficients = *cutCoefficients[3];
-        rightLowCut.setBypassed<3>(false);
-        break;
-    default:
-        *rightLowCut.get<0>().coefficients = *cutCoefficients[0];
-        rightLowCut.setBypassed<0>(false);
-        break;
-    }*/
+    updateFilters();
 }
 
 void KGP_EQAudioProcessor::releaseResources()
@@ -206,18 +155,7 @@ void KGP_EQAudioProcessor::processBlock (juce::AudioBuffer<float>& buffer, juce:
     for (auto i = totalNumInputChannels; i < totalNumOutputChannels; ++i)
         buffer.clear (i, 0, buffer.getNumSamples());
 
-    auto chainSettings = getChainSettings(apvts);
-    
-    updatePeakFilter(chainSettings);
-
-    auto cutCoefficients = juce::dsp::FilterDesign<float>::designIIRHighpassHighOrderButterworthMethod(chainSettings.lowCutFrequency, getSampleRate(), 2 * (chainSettings.lowCutSlope + 1));
-    auto& leftLowCut = lChain.get<ChainPositions::LowCut>();
-
-    UpdateCutFilter(leftLowCut, cutCoefficients, chainSettings.lowCutSlope);
-
-    auto& rightLowCut = rChain.get<ChainPositions::LowCut>();
-
-    UpdateCutFilter(rightLowCut, cutCoefficients, chainSettings.lowCutSlope);
+    updateFilters();
 
     juce::dsp::AudioBlock<float> block(buffer);
 
@@ -282,6 +220,34 @@ void KGP_EQAudioProcessor::updateCoefficients(Coefficients& old, Coefficients& n
     *old = *new_;
 }
 
+void KGP_EQAudioProcessor::updateLowCutFilter(const ChainSettings& chainSettings) {
+    auto lowCutCoefficients = juce::dsp::FilterDesign<float>::designIIRHighpassHighOrderButterworthMethod(chainSettings.lowCutFrequency, getSampleRate(), 2 * (chainSettings.lowCutSlope + 1));
+    
+    auto& leftLowCut = lChain.get<ChainPositions::LowCut>();
+    auto& rightLowCut = rChain.get<ChainPositions::LowCut>();
+
+    UpdateCutFilter(leftLowCut, lowCutCoefficients, chainSettings.lowCutSlope);
+    UpdateCutFilter(rightLowCut, lowCutCoefficients, chainSettings.lowCutSlope);
+}
+
+void KGP_EQAudioProcessor::updateHighCutFilter(const ChainSettings& chainSettings) {
+    auto highCutCoefficients = juce::dsp::FilterDesign<float>::designIIRLowpassHighOrderButterworthMethod(chainSettings.highCutFrequency, getSampleRate(), 2 * (chainSettings.highCutSlope + 1));
+
+    auto& leftHighCut = lChain.get<ChainPositions::HighCut>();
+    auto& rightHighCut = rChain.get<ChainPositions::HighCut>();
+
+    UpdateCutFilter(leftHighCut, highCutCoefficients, chainSettings.highCutSlope);
+    UpdateCutFilter(rightHighCut, highCutCoefficients, chainSettings.highCutSlope);
+}
+
+void KGP_EQAudioProcessor::updateFilters() {
+    auto chainSettings = getChainSettings(apvts);
+
+    updateLowCutFilter(chainSettings);
+    updatePeakFilter(chainSettings);
+    updateHighCutFilter(chainSettings);
+}
+
 juce::AudioProcessorValueTreeState::ParameterLayout
 KGP_EQAudioProcessor::createParameterLayout()
 {
@@ -292,7 +258,7 @@ KGP_EQAudioProcessor::createParameterLayout()
         20.f));
 
     layout.add(std::make_unique<juce::AudioParameterFloat>("High-Cut Frequency",
-        "High-Cut Frequency", juce::NormalisableRange<float>(20.f, 20000.f, 1.f, 2.f),
+        "High-Cut Frequency", juce::NormalisableRange<float>(20.f, 20000.f, 1.f, 1.2f),
         20000.f));
 
     layout.add(std::make_unique<juce::AudioParameterFloat>("Peak Frequency",
