@@ -17,7 +17,7 @@
   <EXPORTFORMATS>
     <VS2022 targetFolder="Builds/VisualStudio2022">
       <CONFIGURATIONS>
-        <CONFIGURATION isDebug="1" name="Debug" targetName="KGP_EQ"/>
+        <CONFIGURATION isDebug="1" name="Debug" targetName="KGP_EQ" enablePluginBinaryCopyStep="1"/>
         <CONFIGURATION isDebug="0" name="Release" targetName="KGP_EQ"/>
       </CONFIGURATIONS>
       <MODULEPATHS>
