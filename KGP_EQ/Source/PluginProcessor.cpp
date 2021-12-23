@@ -104,6 +104,12 @@ void KGP_EQAudioProcessor::prepareToPlay (double sampleRate, int samplesPerBlock
 
     lChain.prepare(spec);
     rChain.prepare(spec);
+
+    auto chainSettings = getChainSettings(apvts);
+    auto peakCoefficients = juce::dsp::IIR::Coefficients<float>::makePeakFilter(sampleRate, chainSettings.peakFreq, chainSettings.peakQuality, juce::Decibels::decibelsToGain(chainSettings.peakGainInDB));
+
+    *lChain.get<ChainPositions::Peak>().coefficients = *peakCoefficients;
+    *rChain.get<ChainPositions::Peak>().coefficients = *peakCoefficients;
 }
 
 void KGP_EQAudioProcessor::releaseResources()
@@ -153,6 +159,12 @@ void KGP_EQAudioProcessor::processBlock (juce::AudioBuffer<float>& buffer, juce:
     for (auto i = totalNumInputChannels; i < totalNumOutputChannels; ++i)
         buffer.clear (i, 0, buffer.getNumSamples());
 
+    auto chainSettings = getChainSettings(apvts);
+    auto peakCoefficients = juce::dsp::IIR::Coefficients<float>::makePeakFilter(getSampleRate(), chainSettings.peakFreq, chainSettings.peakQuality, juce::Decibels::decibelsToGain(chainSettings.peakGainInDB));
+
+    *lChain.get<ChainPositions::Peak>().coefficients = *peakCoefficients;
+    *rChain.get<ChainPositions::Peak>().coefficients = *peakCoefficients;
+
     juce::dsp::AudioBlock<float> block(buffer);
 
     auto lBlock = block.getSingleChannelBlock(0);
@@ -191,21 +203,36 @@ void KGP_EQAudioProcessor::setStateInformation (const void* data, int sizeInByte
     // whose contents will have been created by the getStateInformation() call.
 }
 
+ChainSettings getChainSettings(juce::AudioProcessorValueTreeState& apvts) {
+    ChainSettings settings;
+
+    settings.lowCutFrequency = apvts.getRawParameterValue("Low-Cut Frequency")->load();
+    settings.highCutFrequency = apvts.getRawParameterValue("High-Cut Frequency")->load();
+    settings.lowCutSlope = apvts.getRawParameterValue("Low-Cut Slope")->load();
+    settings.highCutSlope = apvts.getRawParameterValue("High-Cut Slope")->load();
+    settings.peakFreq = apvts.getRawParameterValue("Peak Frequency")->load();
+    settings.peakGainInDB = apvts.getRawParameterValue("Peak Gain")->load();
+    settings.peakQuality = apvts.getRawParameterValue("Peak Quality")->load();
+
+    return settings;
+}
+
+
 juce::AudioProcessorValueTreeState::ParameterLayout
 KGP_EQAudioProcessor::createParameterLayout()
 {
     juce::AudioProcessorValueTreeState::ParameterLayout layout;
 
     layout.add(std::make_unique<juce::AudioParameterFloat>("Low-Cut Frequency",
-        "Low-Cut Frequency", juce::NormalisableRange<float>(20.f, 20000.f, 1.f, 1.f),
+        "Low-Cut Frequency", juce::NormalisableRange<float>(20.f, 20000.f, 1.f, 0.2f),
         20.f));
 
     layout.add(std::make_unique<juce::AudioParameterFloat>("High-Cut Frequency",
-        "High-Cut Frequency", juce::NormalisableRange<float>(20.f, 20000.f, 1.f, 1.f),
+        "High-Cut Frequency", juce::NormalisableRange<float>(20.f, 20000.f, 1.f, 2.f),
         20000.f));
 
     layout.add(std::make_unique<juce::AudioParameterFloat>("Peak Frequency",
-        "Peak Frequency", juce::NormalisableRange<float>(20.f, 20000.f, 1.f, 1.f),
+        "Peak Frequency", juce::NormalisableRange<float>(20.f, 20000.f, 1.f, 0.2f),
         750.f));
 
     layout.add(std::make_unique<juce::AudioParameterFloat>("Peak Gain",
