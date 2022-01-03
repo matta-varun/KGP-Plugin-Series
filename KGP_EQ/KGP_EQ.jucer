@@ -3,6 +3,10 @@
 <JUCERPROJECT id="Iwt0Y8" name="KGP_EQ" projectType="audioplug" useAppConfig="0"
               addUsingNamespaceToJuceHeader="0" jucerFormatVersion="1" cppLanguageStandard="17">
   <MAINGROUP id="CwTXpZ" name="KGP_EQ">
+    <GROUP id="{83542D77-FFCD-5609-DE4E-FBCA86EB7A4D}" name="Resources">
+      <FILE id="dgXxTk" name="MetallicBackground.jpg" compile="0" resource="1"
+            file="../../../../../../Downloads/MetallicBackground.jpg"/>
+    </GROUP>
     <GROUP id="{8AA5246D-BEEE-4264-FC2B-332CA6808CE8}" name="Source">
       <FILE id="LkVDKv" name="PluginProcessor.cpp" compile="1" resource="0"
             file="Source/PluginProcessor.cpp"/>

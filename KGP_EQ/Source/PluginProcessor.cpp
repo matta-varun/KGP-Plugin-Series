@@ -6,6 +6,13 @@
   ==============================================================================
 */
 
+/*
+* Written by Matta Varun, Third Year Undergraduate Student at the Department of
+* Computer Science and Engineering, IIT Kharagpur, India.
+* Audio Plugin implemented using the JUCE Library
+* Inspired by the SimpleEQ plugin of matkat music.
+*/
+
 #include "PluginProcessor.h"
 #include "PluginEditor.h"
 
@@ -106,6 +113,14 @@ void KGP_EQAudioProcessor::prepareToPlay (double sampleRate, int samplesPerBlock
     rChain.prepare(spec);
 
     updateFilters();
+
+    leftChannelFifo.prepare(samplesPerBlock);
+    rightChannelFifo.prepare(samplesPerBlock);
+    osc.initialise([](float x) {return std::sin(x); });
+
+    spec.numChannels = getTotalNumOutputChannels();
+    osc.prepare(spec);
+    osc.setFrequency(440);
 }
 
 void KGP_EQAudioProcessor::releaseResources()
@@ -125,8 +140,8 @@ bool KGP_EQAudioProcessor::isBusesLayoutSupported (const BusesLayout& layouts) c
     // In this template code we only support mono or stereo.
     // Some plugin hosts, such as certain GarageBand versions, will only
     // load plugins that support stereo bus layouts.
-    if (layouts.getMainOutputChannelSet() != juce::AudioChannelSet::mono()
-     && layouts.getMainOutputChannelSet() != juce::AudioChannelSet::stereo())
+    if (//layouts.getMainOutputChannelSet() != juce::AudioChannelSet::mono()
+        layouts.getMainOutputChannelSet() != juce::AudioChannelSet::stereo())
         return false;
 
     // This checks if the input layout matches the output layout
@@ -167,6 +182,9 @@ void KGP_EQAudioProcessor::processBlock (juce::AudioBuffer<float>& buffer, juce:
 
     lChain.process(leftContext);
     rChain.process(rightContext);
+
+    leftChannelFifo.update(buffer);
+    rightChannelFifo.update(buffer);
 }
 
 //==============================================================================
@@ -177,8 +195,8 @@ bool KGP_EQAudioProcessor::hasEditor() const
 
 juce::AudioProcessorEditor* KGP_EQAudioProcessor::createEditor()
 {
-//    return new KGP_EQAudioProcessorEditor (*this);
-    return new juce::GenericAudioProcessorEditor(*this);
+    return new KGP_EQAudioProcessorEditor (*this);
+//    return new juce::GenericAudioProcessorEditor(*this);
 }
 
 //==============================================================================
@@ -187,12 +205,21 @@ void KGP_EQAudioProcessor::getStateInformation (juce::MemoryBlock& destData)
     // You should use this method to store your parameters in the memory block.
     // You could do that either as raw data, or use the XML or ValueTree classes
     // as intermediaries to make it easy to save and load complex data.
+
+    juce::MemoryOutputStream mos(destData, true);
+    apvts.state.writeToStream(mos);
 }
 
 void KGP_EQAudioProcessor::setStateInformation (const void* data, int sizeInBytes)
 {
     // You should use this method to restore your parameters from this memory block,
     // whose contents will have been created by the getStateInformation() call.
+    
+    auto tree = juce::ValueTree::readFromData(data, sizeInBytes);
+    if (tree.isValid()) {
+        apvts.replaceState(tree);
+        updateFilters();
+    }
 }
 
 ChainSettings getChainSettings(juce::AudioProcessorValueTreeState& apvts) {
@@ -206,25 +233,41 @@ ChainSettings getChainSettings(juce::AudioProcessorValueTreeState& apvts) {
     settings.peakGainInDB = apvts.getRawParameterValue("Peak Gain")->load();
     settings.peakQuality = apvts.getRawParameterValue("Peak Quality")->load();
 
+    settings.lowCutByPassed = apvts.getRawParameterValue("Low-Cut Bypassed")->load() > 0.5f;
+    settings.peakByPassed = apvts.getRawParameterValue("Peak Bypassed")->load() > 0.5f;
+    settings.highCutByPassed = apvts.getRawParameterValue("High-Cut Bypassed")->load() > 0.5f;
+
     return settings;
 }
 
+Coefficients makePeakFilter(const ChainSettings& chainSettings, double sampleRate) {
+    return juce::dsp::IIR::Coefficients<float>::makePeakFilter(sampleRate, chainSettings.peakFreq, chainSettings.peakQuality, juce::Decibels::decibelsToGain(chainSettings.peakGainInDB));
+}
+
+
 void KGP_EQAudioProcessor::updatePeakFilter(const ChainSettings& chainSettings) {
-    auto peakCoefficients = juce::dsp::IIR::Coefficients<float>::makePeakFilter(getSampleRate(), chainSettings.peakFreq, chainSettings.peakQuality, juce::Decibels::decibelsToGain(chainSettings.peakGainInDB));
+    auto peakCoefficients = makePeakFilter(chainSettings, getSampleRate());
+
+    lChain.setBypassed<ChainPositions::Peak>(chainSettings.peakByPassed);
+    rChain.setBypassed<ChainPositions::Peak>(chainSettings.peakByPassed);
 
     updateCoefficients(lChain.get<ChainPositions::Peak>().coefficients, peakCoefficients);
     updateCoefficients(rChain.get<ChainPositions::Peak>().coefficients, peakCoefficients);
 }
 
-void KGP_EQAudioProcessor::updateCoefficients(Coefficients& old, Coefficients& new_) {
+void updateCoefficients(Coefficients& old, const Coefficients& new_) {
     *old = *new_;
 }
+
 
 void KGP_EQAudioProcessor::updateLowCutFilter(const ChainSettings& chainSettings) {
     auto lowCutCoefficients = juce::dsp::FilterDesign<float>::designIIRHighpassHighOrderButterworthMethod(chainSettings.lowCutFrequency, getSampleRate(), 2 * (chainSettings.lowCutSlope + 1));
     
     auto& leftLowCut = lChain.get<ChainPositions::LowCut>();
     auto& rightLowCut = rChain.get<ChainPositions::LowCut>();
+
+    lChain.setBypassed<ChainPositions::LowCut>(chainSettings.lowCutByPassed);
+    rChain.setBypassed<ChainPositions::LowCut>(chainSettings.lowCutByPassed);
 
     UpdateCutFilter(leftLowCut, lowCutCoefficients, chainSettings.lowCutSlope);
     UpdateCutFilter(rightLowCut, lowCutCoefficients, chainSettings.lowCutSlope);
@@ -235,6 +278,9 @@ void KGP_EQAudioProcessor::updateHighCutFilter(const ChainSettings& chainSetting
 
     auto& leftHighCut = lChain.get<ChainPositions::HighCut>();
     auto& rightHighCut = rChain.get<ChainPositions::HighCut>();
+
+    lChain.setBypassed<ChainPositions::HighCut>(chainSettings.highCutByPassed);
+    rChain.setBypassed<ChainPositions::HighCut>(chainSettings.highCutByPassed);
 
     UpdateCutFilter(leftHighCut, highCutCoefficients, chainSettings.highCutSlope);
     UpdateCutFilter(rightHighCut, highCutCoefficients, chainSettings.highCutSlope);
@@ -283,6 +329,11 @@ KGP_EQAudioProcessor::createParameterLayout()
 
     layout.add(std::make_unique<juce::AudioParameterChoice>("Low-Cut Slope", "Low-Cut Slope", strArray, 0));
     layout.add(std::make_unique<juce::AudioParameterChoice>("High-Cut Slope", "High-Cut Slope", strArray, 0));
+
+    layout.add(std::make_unique<juce::AudioParameterBool>("Low-Cut Bypassed", "Low-Cut Bypassed", false));
+    layout.add(std::make_unique<juce::AudioParameterBool>("Peak Bypassed", "Peak Bypassed", false));
+    layout.add(std::make_unique<juce::AudioParameterBool>("High-Cut Bypassed", "High-Cut Bypassed", false));
+    layout.add(std::make_unique<juce::AudioParameterBool>("Analyzer Enabled", "Analyzer Enabled", true));
 
         return layout;
 }
